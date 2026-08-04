@@ -52,10 +52,7 @@ pip install -r requirements.txt
    (pode ser o nome do arquivo, se ele estiver na mesma pasta, ou um
    caminho completo)
 
-⚠️ **Nunca suba o `credenciais.env` nem o `.json` da service account
-para o GitHub** — o `.gitignore` deste repositório já ignora os dois,
-mas vale conferir com `git status` antes de cada commit.
-
+   
 ## Como rodar
 
 ```
