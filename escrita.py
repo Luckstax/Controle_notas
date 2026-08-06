@@ -10,12 +10,7 @@ import gspread
 from planilha_io import com_retry, obter_ou_criar_aba, normalizar
 from conciliacao import calcular_prioridade
 
-COR_VERDE = {"red": 0.78, "green": 0.94, "blue": 0.81}
-COR_AMARELO = {"red": 1.0, "green": 0.92, "blue": 0.61}
-COR_VERMELHO = {"red": 1.0, "green": 0.78, "blue": 0.81}
 COR_CINZA = {"red": 0.85, "green": 0.85, "blue": 0.85}
-COR_BRANCO = {"red": 1.0, "green": 1.0, "blue": 1.0}
-COR_TEXTO_PADRAO = {"red": 0.0, "green": 0.0, "blue": 0.0}  # preto, cor normal de texto
 
 
 def _fmt_data(d):
@@ -141,7 +136,6 @@ def escrever_alocacoes(sh, alocacoes, overrides, avisos):
                  "Produto", "NF Saida (sugerida)", "NF Saida (final)", "Quantidade",
                  "Origem", "Observacao"]
     linhas = [cabecalho]
-    cores_linha = [None]
     for a in alocacoes:
         sugerida = a["nf_saida"] or ""
         chave = (a["nota_recebimento"], normalizar(a["produto"]), normalizar(sugerida))
@@ -154,14 +148,6 @@ def escrever_alocacoes(sh, alocacoes, overrides, avisos):
             a["fornecedor"], a["produto"], sugerida, final,
             a["quantidade"], a["origem"], obs,
         ])
-        if a["origem"] == "SEM CORRESPONDENCIA":
-            cores_linha.append(COR_VERMELHO)
-        elif chave in overrides:
-            cores_linha.append(None)
-        elif a["origem"].startswith("fifo"):
-            cores_linha.append(COR_AMARELO)
-        else:
-            cores_linha.append(None)
 
     # overrides que nao encontraram par na nova rodada (a sugestao mudou)
     chaves_usadas = {
@@ -178,20 +164,14 @@ def escrever_alocacoes(sh, alocacoes, overrides, avisos):
 
     ws.update(values=linhas, range_name="A1")
     ws.format("A1:J1", {"textFormat": {"bold": True}, "backgroundColor": COR_CINZA})
-    ultima_linha = len(linhas)
-    if ultima_linha > 1:
-        # reseta o fundo de TODAS as linhas de dado antes de recolorir.
-        # O clear() do Sheets so apaga valor, nao cor - sem esse reset,
-        # uma linha "sem problema" hoje podia ficar com o vermelho/
-        # amarelo de uma execucao anterior, se essa mesma posicao de
-        # linha antes fosse SEM CORRESPONDENCIA ou fifo (sobra).
-        ws.format(f"A2:J{ultima_linha}", {"backgroundColor": COR_BRANCO})
-    for i, cor in enumerate(cores_linha):
-        if cor is None or i == 0:
-            continue
-        linha_planilha = i + 1
-        ws.format(f"A{linha_planilha}:J{linha_planilha}", {"backgroundColor": cor})
     ws.freeze(rows=1)
+    # A cor de fundo (vermelho para SEM CORRESPONDENCIA, amarelo para
+    # fifo) NAO e' mais feita por aqui - e' uma regra de formatacao
+    # condicional configurada direto na planilha (ver README), olhando
+    # o texto da coluna Origem. Isso evita dezenas de chamadas de
+    # escrita por execucao (que estouravam a cota de "Write requests
+    # per minute" do Google Sheets) e tambem elimina de vez o risco de
+    # cor residual de uma execucao anterior ficar grudada.
     return ws
 
 
@@ -216,10 +196,9 @@ def escrever_saldo(sh, saldo_map, alocacoes):
         saldo_aberto = round(s.enviado - retornado, 6)
         dias_aberto = (hoje - s.data).days if isinstance(s.data, datetime) else None
         pct = round(100 * retornado / s.enviado, 1) if s.enviado else 0
-        prioridade, cor_texto = calcular_prioridade(dias_aberto, saldo_aberto)
+        prioridade, _cor_texto = calcular_prioridade(dias_aberto, saldo_aberto)
         calculadas.append(dict(s=s, retornado=retornado, saldo_aberto=saldo_aberto,
-                                dias_aberto=dias_aberto, prioridade=prioridade,
-                                cor_texto=cor_texto, pct=pct))
+                                dias_aberto=dias_aberto, prioridade=prioridade, pct=pct))
 
     # prioridade visual: pendentes primeiro, com mais dias em aberto no topo
     # (a NF parada ha mais tempo e' a sugestao prioritaria pra associar o
@@ -234,7 +213,6 @@ def escrever_saldo(sh, saldo_map, alocacoes):
     calculadas.sort(key=chave_ordenacao)
 
     linhas = [cabecalho]
-    cores_texto = [None]
     for item in calculadas:
         s = item["s"]
         linhas.append([
@@ -243,24 +221,15 @@ def escrever_saldo(sh, saldo_map, alocacoes):
             item["dias_aberto"] if item["dias_aberto"] is not None else "",
             item["prioridade"], item["pct"],
         ])
-        cores_texto.append(item["cor_texto"])
 
     ws.update(values=linhas, range_name="A1")
     ws.format("A1:K1", {"textFormat": {"bold": True}, "backgroundColor": COR_CINZA})
-    ultima_linha = len(linhas)
-    if ultima_linha > 1:
-        # reseta a formatacao da coluna de prioridade ANTES de recolorir.
-        # O clear() do Sheets so apaga valor, nao cor/formatacao - sem
-        # esse reset, uma linha que hoje e' "Concluido" (sem cor) podia
-        # ficar com a cor de uma execucao anterior, se essa mesma
-        # posicao de linha antes tivesse "Alta"/"Media"/"Baixa".
-        ws.format(f"I2:J{ultima_linha}", {"textFormat": {"foregroundColor": COR_TEXTO_PADRAO, "bold": False}})
-    for i, cor in enumerate(cores_texto):
-        if i == 0 or cor is None:
-            continue
-        linha_planilha = i + 1
-        ws.format(f"I{linha_planilha}:J{linha_planilha}", {"textFormat": {"foregroundColor": cor, "bold": True}})
     ws.freeze(rows=1)
+    # A cor do texto de Prioridade (verde/amarelo/vermelho) NAO e' mais
+    # feita por aqui - e' uma regra de formatacao condicional
+    # configurada direto na planilha (ver README), olhando o texto da
+    # coluna Prioridade. Mesmo motivo do escrever_alocacoes: menos
+    # chamadas de escrita por execucao, sem risco de cor residual.
     return ws
 
 

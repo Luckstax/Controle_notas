@@ -1,0 +1,17 @@
+	 		Coluna de Saida	             	Coluna de Entrada
+quantidade  01001-LD		H		 		Q
+Quantidade  01001-LE		J	 	 		S
+Quantidade 01011-LD-C		L		 		U
+Quantidade 01011-LE-C		N		 		W
+quantidade  01011-LD-N		P		 		Y
+quantidade 01011-LE-N		R		 		AA
+QUANTIDADE  02485-I		T		 		AC
+QUANTIDADE  01021-I		V		 		AE
+
+
+nota mencionada 1						E
+nota mencionada 2						G
+nota mencionada 3						I
+nota mencionada 4						K
+nota mencionada 5						M
+nota mencionada 6						AH
