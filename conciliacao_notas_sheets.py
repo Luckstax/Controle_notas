@@ -53,6 +53,7 @@ from escrita import (
     escrever_alocacoes, escrever_saldo, escrever_avisos, preencher_controle,
     escrever_retorno_por_nf,
 )
+from historico import registrar_execucao
 
 
 def main():
@@ -123,6 +124,7 @@ def main():
             if len(avisos) > 15:
                 print(f"  ... e mais {len(avisos) - 15} aviso(s).")
         print("\nNenhuma aba foi alterada (modo dry-run).")
+        registrar_execucao(saidas, entradas, avisos, alocacoes, dry_run=True)
         return
 
     print("Escrevendo resultado na planilha...")
@@ -131,6 +133,7 @@ def main():
     escrever_avisos(sh, avisos)
     preencher_controle(sh, saidas, entradas)
     escrever_retorno_por_nf(sh, saidas, alocacoes)
+    registrar_execucao(saidas, entradas, avisos, alocacoes, dry_run=False)
 
     alocacoes_novas = contar_alocacoes_novas(alocacoes, alocacoes_anteriores)
     avisos_novos = contar_avisos_novos(avisos, avisos_anteriores)
