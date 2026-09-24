@@ -79,7 +79,7 @@ def para_float(v):
 
 def ler_saidas(ws):
     headers = mapear_cabecalhos(ws)
-    col_data = achar_coluna(headers, ("data",))
+    col_data = achar_coluna(headers, ("data",), nao_contem=("carimbo",))
     col_nf = achar_coluna(headers, ("numero", "nota", "fiscal"))
     col_serie = achar_coluna(headers, ("serie",))
     col_tipo = achar_coluna(headers, ("tipo",))

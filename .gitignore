@@ -1,0 +1,12 @@
+# Credenciais
+credenciais.env
+*.json
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Ambiente virtual
+.venv/
+venv/
+env/

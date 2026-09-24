@@ -96,10 +96,23 @@ def contar_avisos_novos(avisos, avisos_anteriores):
 @com_retry
 def ler_overrides_anteriores(sh):
     """Le a aba Alocacoes ANTES dela ser recriada, e devolve um dict
-    {(nota_recebimento, produto, nf_sugerida): nf_final_digitada}
+    {(nota_recebimento, produto): {"final": ..., "sugerida_quando_ajustado": ...}}
     apenas para as linhas onde alguem editou manualmente a coluna
-    'NF Saida (final)' (ou seja, ela ficou diferente da sugestao).
-    Isso permite reaplicar os ajustes manuais depois de recalcular."""
+    'NF Saida (final)' (ou seja, ela ficou diferente da sugestao na
+    epoca). Isso permite reaplicar os ajustes manuais depois de
+    recalcular.
+
+    IMPORTANTE: a partir desta versao, a CHAVE do override NAO inclui
+    mais a NF sugerida (antes era (recebimento, produto, sugerida)).
+    Motivo: cadastrar notas de saida novas pode reordenar toda a
+    cadeia de FIFO e mudar a sugestao de varias linhas de uma vez -
+    com a sugestao dentro da chave, isso "soltava" ajustes manuais que
+    deveriam continuar validos, obrigando a refazer o mesmo ajuste
+    toda vez. Agora o ajuste fica "grudado" na linha (recebimento +
+    produto) independente do que o FIFO sugerir depois. Se a sugestao
+    mudar enquanto o ajuste continua colado, um AVISO INFORMATIVO e'
+    gerado (nao bloqueante) pra voce revisar se o ajuste manual ainda
+    faz sentido - ver escrever_alocacoes."""
     try:
         ws = sh.worksheet("Alocacoes")
     except gspread.WorksheetNotFound:
@@ -125,8 +138,11 @@ def ler_overrides_anteriores(sh):
         sugerida = normalizar(linha[i_sug])
         final = normalizar(linha[i_final])
         if final and final != sugerida:
-            chave = (linha[i_receb], normalizar(linha[i_prod]), sugerida)
-            overrides[chave] = linha[i_final]
+            chave = (linha[i_receb], normalizar(linha[i_prod]))
+            overrides[chave] = {
+                "final": linha[i_final],
+                "sugerida_quando_ajustado": linha[i_sug],
+            }
     return overrides
 
 
@@ -139,9 +155,27 @@ def escrever_alocacoes(sh, alocacoes, overrides, avisos):
     linhas = [cabecalho]
     for a in alocacoes:
         sugerida = a["nf_saida"] or ""
-        chave = (a["nota_recebimento"], normalizar(a["produto"]), normalizar(sugerida))
-        final = overrides.get(chave, sugerida)
-        obs = "ajuste manual preservado" if chave in overrides else ""
+        chave = (a["nota_recebimento"], normalizar(a["produto"]))
+        override = overrides.get(chave)
+
+        if override:
+            final = override["final"]
+            sugerida_na_epoca = normalizar(override["sugerida_quando_ajustado"])
+            if sugerida_na_epoca != normalizar(sugerida):
+                obs = "ajuste manual preservado (aviso: sugestao do FIFO mudou - revise)"
+                avisos.append(
+                    f"Aviso: a sugestao do FIFO mudou para o recebimento "
+                    f"'{a['nota_recebimento']}', produto '{a['produto']}' "
+                    f"(era '{override['sugerida_quando_ajustado'] or '-'}', agora seria "
+                    f"'{sugerida or '-'}'), mas o ajuste manual '{final}' continua sendo "
+                    f"aplicado. Confira se ele ainda faz sentido."
+                )
+            else:
+                obs = "ajuste manual preservado"
+        else:
+            final = sugerida
+            obs = ""
+
         a["nf_saida_final"] = final  # usado depois no calculo de saldo
 
         linhas.append([
@@ -150,17 +184,21 @@ def escrever_alocacoes(sh, alocacoes, overrides, avisos):
             a["quantidade"], a["origem"], obs,
         ])
 
-    # overrides que nao encontraram par na nova rodada (a sugestao mudou)
+    # overrides cuja linha (recebimento + produto) nem existe mais
+    # nesta execucao (ex: a entrada foi apagada, ou aquele produto
+    # deixou de ter quantidade) - esses sim precisam de revisao manual,
+    # porque nao ha mais onde reaplicar o ajuste.
     chaves_usadas = {
-        (a["nota_recebimento"], normalizar(a["produto"]), normalizar(a["nf_saida"] or ""))
+        (a["nota_recebimento"], normalizar(a["produto"]))
         for a in alocacoes
     }
     for chave_antiga in overrides:
         if chave_antiga not in chaves_usadas:
             avisos.append(
-                f"Ajuste manual anterior nao pode ser reaplicado automaticamente: "
+                f"Ajuste manual anterior nao encontra mais correspondencia nesta execucao: "
                 f"recebimento '{chave_antiga[0]}', produto '{chave_antiga[1]}' - "
-                f"a sugestao do FIFO mudou desde a ultima execucao. Revise a aba Alocacoes."
+                f"a linha nao existe mais (entrada apagada ou produto sem quantidade). "
+                f"Revise a aba Alocacoes."
             )
 
     ws.update(values=linhas, range_name="A1")
@@ -181,7 +219,7 @@ def escrever_saldo(sh, saldo_map, alocacoes):
     ws = obter_ou_criar_aba(sh, "Saldo por NF")
     cabecalho = ["NF Saida", "Serie", "Data Envio", "Fornecedor", "Produto",
                  "Qtd Enviada", "Qtd Retornada", "Saldo em Aberto", "Dias em Aberto",
-                 "Prioridade", "% Retornado"]
+                 "Prioridade", "% Retornado", "Tipo"]
 
     hoje = datetime.now()
     retornado_por_chave = {}
@@ -220,11 +258,11 @@ def escrever_saldo(sh, saldo_map, alocacoes):
             s.nf, s.serie, _fmt_data(s.data), s.fornecedor, s.produto,
             s.enviado, item["retornado"], item["saldo_aberto"],
             item["dias_aberto"] if item["dias_aberto"] is not None else "",
-            item["prioridade"], item["pct"],
+            item["prioridade"], item["pct"], s.tipo,
         ])
 
     ws.update(values=linhas, range_name="A1")
-    ws.format("A1:K1", {"textFormat": {"bold": True}, "backgroundColor": COR_CINZA})
+    ws.format("A1:L1", {"textFormat": {"bold": True}, "backgroundColor": COR_CINZA})
     ws.freeze(rows=1)
     # A cor do texto de Prioridade (verde/amarelo/vermelho) NAO e' mais
     # feita por aqui - e' uma regra de formatacao condicional

@@ -1,43 +1,6 @@
 """
 Conciliacao de Notas Fiscais - Saida x Entrada (retorno) - versao Google Sheets
 ================================================================================
-Versao 3.0 - dividida em modulos (config.py, planilha_io.py, leitura.py,
-conciliacao.py, escrita.py) em vez de um unico arquivo gigante. O jeito
-de USAR nao mudou nada - continua rodando exatamente este arquivo.
-
-INSTALACAO (uma vez so):
-    pip install gspread google-auth
-
-USO (sem precisar digitar parametros):
-    Basta ter um arquivo "credenciais.env" na MESMA PASTA deste script
-    (ou em C:/Users/maua/Desktop/programação/notas/credenciais.env),
-    com este formato:
-
-        credenciais = "C:/caminho/para/o/arquivo-da-service-account.json"
-        planilha = "https://docs.google.com/spreadsheets/d/XXXXXXXX/edit"
-
-    E rodar so:
-        python conciliacao_notas_sheets.py
-
-    Se quiser, ainda da pra sobrescrever pontualmente por linha de
-    comando (tem prioridade sobre o .env):
-        python conciliacao_notas_sheets.py --credenciais "..." --planilha "..."
-        python conciliacao_notas_sheets.py --env "C:/outra/pasta/credenciais.env"
-
-    Modo simulacao (le a planilha real, mostra o que seria escrito, mas
-    NAO grava nada nela - util pra testar mudanca de regra sem sujar a
-    planilha de producao):
-        python conciliacao_notas_sheets.py --dry-run
-
-A planilha precisa ter as abas "Saida" e "Entrada" (vindas dos dois
-Forms) e, de preferencia, uma aba "Controle" com os nomes dos
-produtos na coluna A (o script preenche as colunas B/C dela).
-O e-mail da conta de servico (campo "client_email" do .json) precisa
-ter sido compartilhado como Editor na planilha (ou a planilha estar
-com o link liberado para edicao).
-
-Logica de alocacao (por produto, dentro de cada linha de Entrada) e
-demais detalhes: ver o topo de conciliacao.py.
 """
 
 import argparse
@@ -105,7 +68,6 @@ def main():
     if overrides:
         print(f"{len(overrides)} ajuste(s) manual(is) encontrado(s) e sera(ao) preservado(s).")
 
-    # le o estado ANTES de sobrescrever, pra depois sabermos o que e' novo
     alocacoes_anteriores = ler_alocacoes_anteriores(sh)
     avisos_anteriores = ler_avisos_anteriores(sh)
 

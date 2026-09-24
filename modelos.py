@@ -39,6 +39,7 @@ class SaldoNF:
     fornecedor: str
     produto: str
     enviado: float
+    tipo: str = ""
     alocado: float = 0.0
 
     @property

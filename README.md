@@ -52,6 +52,9 @@ pip install -r requirements.txt
    (pode ser o nome do arquivo, se ele estiver na mesma pasta, ou um
    caminho completo)
 
+<<<<<<< HEAD
+   
+=======
 ⚠️ **Nunca suba o `credenciais.env` nem o `.json` da service account
 para o GitHub** — o `.gitignore` deste repositório já ignora os dois,
 mas vale conferir com `git status` antes de cada commit.
@@ -81,6 +84,7 @@ condicional → "A fórmula personalizada é":
 Confira antes se a coluna referenciada na fórmula (I ou J) bate com o
 cabeçalho real da sua planilha, caso a ordem das colunas tenha mudado.
 
+>>>>>>> c4907cd (atualização 06/08)
 ## Como rodar
 
 ```
@@ -138,24 +142,6 @@ editar o Forms) sem quebrar o script. Se por engano existir mais de uma
 coluna com o mesmo cabeçalho (ex: duas colunas "Fornecedor"), o script
 usa a que estiver preenchida em cada linha e avisa no console se os
 valores forem conflitantes.
-
-## Começando do zero (planilha e Forms de exemplo)
-
-Se você ainda não tem a planilha e os Forms montados, a pasta
-[`modelo/`](modelo/) tem:
-
-- **`Planilha_MODELO_conciliacao.xlsx`** — planilha de exemplo com
-  dados fictícios, já com as abas Saida e Entrada no formato exato que
-  o script espera (inclusive um exemplo de devolução que menciona duas
-  notas de saída diferentes).
-- **`modelo_forms.md`** — lista exata das perguntas que cada um dos
-  dois Google Forms precisa ter, pra reconstruir do zero em poucos
-  minutos.
-
-Baixe o modelo, faça upload dele como uma nova planilha no Google
-Sheets, e configure os dois Forms pra escreverem nas abas Saida/Entrada
-dessa planilha (conforme `modelo_forms.md`). Depois é só seguir a
-seção "Configuração" abaixo com essa planilha nova.
 
 ## Apelidos de fornecedor
 

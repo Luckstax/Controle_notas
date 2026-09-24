@@ -68,19 +68,37 @@ def validar_dados(saidas, entradas):
 
 
 # ----------------------------------------------------------------------
-# Conciliacao / alocacao FIFO
+# Conciliacao / alocacao - agora em DUAS PASSADAS GLOBAIS (nao mais uma
+# entrada de cada vez, do inicio ao fim). Motivo da mudanca:
 #
-# Por produto, dentro de cada linha de Entrada:
-#   1. Tenta usar as "notas mencionadas" (ate 5, na ordem preenchida no
-#      formulario de retorno), uma de cada vez. Se a NF existir e tiver
-#      saldo em aberto daquele produto, aloca ali; se sobrar, tenta a
-#      proxima nota mencionada.
-#   2. Se ainda sobrar (nota mencionada errada, sem saldo suficiente, ou
-#      nao encontrada), o restante "escorre" em FIFO pelas NFs mais
-#      antigas em aberto do MESMO FORNECEDOR e MESMO PRODUTO.
-#   3. Se ainda sobrar, fica marcado como "SEM CORRESPONDENCIA" para
-#      revisao manual - isso nao e' necessariamente um erro (pode ser
-#      retorno de nota de saida antiga, de antes do sistema existir).
+# Na versao antiga, cada entrada (em ordem de data de recebimento)
+# tentava suas "notas mencionadas" e, na sequencia, IMEDIATAMENTE caia
+# pro FIFO com o que sobrasse - tudo dentro do mesmo passo, entrada por
+# entrada. Isso criava um efeito colateral real: uma entrada mais
+# antiga (por data de recebimento) que NAO mencionou nenhuma nota podia
+# "roubar" via FIFO o saldo de uma NF que uma entrada mais recente
+# tinha mencionado corretamente - simplesmente por ser processada
+# primeiro na fila cronologica. Uma nota mencionada certinho podia
+# ficar sem saldo antes mesmo de a entrada que a citou ser processada.
+#
+# Agora:
+#   PASSADA 1 (global, todas as entradas): resolve TODAS as "notas
+#     mencionadas" de TODAS as entradas primeiro, sem nenhum FIFO ainda
+#     acontecendo. Uma nota mencionada corretamente so' "perde" saldo
+#     pra outra entrada se essa outra entrada TAMBEM a tiver mencionado
+#     (nesse caso, desempate por data de recebimento, mais antiga
+#     primeiro - ainda e' FIFO, so' que restrito a quem reivindicou a
+#     nota).
+#   PASSADA 2 (global, so' o que sobrou da passada 1): so' agora o
+#     restante de cada entrada (nada mencionado, nota mencionada nao
+#     encontrada, ou saldo insuficiente na nota mencionada) disputa o
+#     FIFO cronologico normal pelas NFs do mesmo fornecedor/produto.
+#   O que sobrar depois das duas passadas vira SEM CORRESPONDENCIA.
+#
+# Isso garante que uma nota mencionada corretamente NUNCA e' roubada
+# por uma entrada que nao a mencionou - o preco e' que, se DUAS
+# entradas mencionarem por engano a MESMA nota, a mais antiga por data
+# de recebimento continua tendo prioridade (mesmo criterio de sempre).
 # ----------------------------------------------------------------------
 def conciliar(saidas, entradas):
     saldo_map = {}
@@ -89,6 +107,7 @@ def conciliar(saidas, entradas):
             saldo_map[(s.nf, produto)] = SaldoNF(
                 nf=s.nf, serie=s.serie, data=s.data,
                 fornecedor=s.fornecedor, produto=produto, enviado=qtd,
+                tipo=s.tipo,
             )
 
     alocacoes = []
@@ -96,6 +115,8 @@ def conciliar(saidas, entradas):
 
     entradas_ordenadas = sorted(entradas, key=lambda e: (e.data is None, e.data))
 
+    # ---- PASSADA 1: so' notas mencionadas, em todas as entradas ----
+    pendentes = []  # itens que sobraram (total ou parcialmente) pra passada 2
     for e in entradas_ordenadas:
         for produto, qtd_total in e.produtos.items():
             restante = qtd_total
@@ -149,32 +170,40 @@ def conciliar(saidas, entradas):
                 )
 
             if restante > 1e-9:
-                candidatos = sorted(
-                    [v for (nf, p), v in saldo_map.items()
-                     if p == produto and v.fornecedor == e.fornecedor and v.disponivel > 1e-9],
-                    key=lambda v: (v.data is None, v.data),
-                )
-                for cand in candidatos:
-                    if restante <= 1e-9:
-                        break
-                    usar = min(restante, cand.disponivel)
-                    cand.alocado += usar
-                    restante = round(restante - usar, 6)
-                    alocacoes.append(dict(
-                        entrada_linha=e.linha, nota_recebimento=e.nota_recebimento,
-                        data_entrada=e.data, fornecedor=e.fornecedor, produto=produto,
-                        nf_saida=cand.nf, quantidade=usar, origem="fifo (sobra)",
-                    ))
+                pendentes.append(dict(e=e, produto=produto, restante=restante))
 
-            if restante > 1e-9:
-                alocacoes.append(dict(
-                    entrada_linha=e.linha, nota_recebimento=e.nota_recebimento,
-                    data_entrada=e.data, fornecedor=e.fornecedor, produto=produto,
-                    nf_saida=None, quantidade=restante, origem="SEM CORRESPONDENCIA",
-                ))
-                avisos.append(
-                    f"Entrada linha {e.linha}: sobraram {restante} unidades do produto "
-                    f"'{produto}' sem NF de saida em aberto do fornecedor '{e.fornecedor}'."
-                )
+    # ---- PASSADA 2: FIFO cronologico so' com o que sobrou ----
+    for item in pendentes:
+        e = item["e"]
+        produto = item["produto"]
+        restante = item["restante"]
+
+        candidatos = sorted(
+            [v for (nf, p), v in saldo_map.items()
+             if p == produto and v.fornecedor == e.fornecedor and v.disponivel > 1e-9],
+            key=lambda v: (v.data is None, v.data),
+        )
+        for cand in candidatos:
+            if restante <= 1e-9:
+                break
+            usar = min(restante, cand.disponivel)
+            cand.alocado += usar
+            restante = round(restante - usar, 6)
+            alocacoes.append(dict(
+                entrada_linha=e.linha, nota_recebimento=e.nota_recebimento,
+                data_entrada=e.data, fornecedor=e.fornecedor, produto=produto,
+                nf_saida=cand.nf, quantidade=usar, origem="fifo (sobra)",
+            ))
+
+        if restante > 1e-9:
+            alocacoes.append(dict(
+                entrada_linha=e.linha, nota_recebimento=e.nota_recebimento,
+                data_entrada=e.data, fornecedor=e.fornecedor, produto=produto,
+                nf_saida=None, quantidade=restante, origem="SEM CORRESPONDENCIA",
+            ))
+            avisos.append(
+                f"Entrada linha {e.linha}: sobraram {restante} unidades do produto "
+                f"'{produto}' sem NF de saida em aberto do fornecedor '{e.fornecedor}'."
+            )
 
     return saldo_map, alocacoes, avisos
