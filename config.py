@@ -9,7 +9,7 @@ import os
 def caminho_env_padrao():
     candidatos = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "credenciais.env"),
-        r"C:\Users\maua\Desktop\programação\notas\credenciais.env",
+        r"C:\Users\cpd02\Desktop\programação\Controle_notas\credenciais.env",
     ]
     for c in candidatos:
         if os.path.exists(c):

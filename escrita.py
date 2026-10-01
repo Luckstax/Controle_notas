@@ -105,11 +105,11 @@ def ler_overrides_anteriores(sh):
     IMPORTANTE: a partir desta versao, a CHAVE do override NAO inclui
     mais a NF sugerida (antes era (recebimento, produto, sugerida)).
     Motivo: cadastrar notas de saida novas pode reordenar toda a
-    cadeia de FIFO e mudar a sugestao de varias linhas de uma vez -
+    cadeia de alocacao e mudar a sugestao de varias linhas de uma vez -
     com a sugestao dentro da chave, isso "soltava" ajustes manuais que
     deveriam continuar validos, obrigando a refazer o mesmo ajuste
     toda vez. Agora o ajuste fica "grudado" na linha (recebimento +
-    produto) independente do que o FIFO sugerir depois. Se a sugestao
+    produto) independente do que a sugestao for depois. Se a sugestao
     mudar enquanto o ajuste continua colado, um AVISO INFORMATIVO e'
     gerado (nao bloqueante) pra voce revisar se o ajuste manual ainda
     faz sentido - ver escrever_alocacoes."""
@@ -152,19 +152,51 @@ def escrever_alocacoes(sh, alocacoes, overrides, avisos):
     cabecalho = ["Linha Entrada", "Nota Recebimento", "Data Entrada", "Fornecedor",
                  "Produto", "NF Saida (sugerida)", "NF Saida (final)", "Quantidade",
                  "Origem", "Observacao"]
+
+    # Quantas linhas de alocacao existem pra cada chave (recebimento,
+    # produto) NESTA execucao. A chave do override NAO diferencia linhas
+    # quando o mesmo produto de uma mesma entrada foi dividido entre
+    # DUAS (ou mais) NFs de origem (ex: 300un vieram da NF X e 100un da
+    # NF Y) - as duas linhas compartilham a mesma chave. Se aplicassemos
+    # o override cegamente, um ajuste manual feito numa dessas linhas
+    # seria copiado pra TODAS as linhas da mesma chave, o que e' errado.
+    # Por isso: so' aplicamos o override automaticamente quando a chave
+    # e' unica nesta execucao; quando esta dividida, avisamos e nao
+    # aplicamos (fica na sugestao), pra nao arriscar aplicar o ajuste
+    # errado numa das partes.
+    contagem_por_chave = {}
+    for a in alocacoes:
+        chave = (a["nota_recebimento"], normalizar(a["produto"]))
+        contagem_por_chave[chave] = contagem_por_chave.get(chave, 0) + 1
+
+    avisado_ambiguo = set()
     linhas = [cabecalho]
     for a in alocacoes:
         sugerida = a["nf_saida"] or ""
         chave = (a["nota_recebimento"], normalizar(a["produto"]))
         override = overrides.get(chave)
+        dividida = contagem_por_chave[chave] > 1
 
-        if override:
+        if override and dividida:
+            final = sugerida
+            obs = "ajuste manual NAO reaplicado (linha dividida entre varias NFs - ajuste manualmente)"
+            if chave not in avisado_ambiguo:
+                avisado_ambiguo.add(chave)
+                avisos.append(
+                    f"Aviso: ha' um ajuste manual salvo para o recebimento "
+                    f"'{a['nota_recebimento']}', produto '{a['produto']}', mas essa "
+                    f"combinacao agora esta' dividida entre {contagem_por_chave[chave]} NFs de "
+                    f"origem diferentes nesta execucao. Pra nao aplicar o ajuste na linha "
+                    f"errada, ele NAO foi reaplicado automaticamente - revise e ajuste cada "
+                    f"linha manualmente na aba Alocacoes."
+                )
+        elif override:
             final = override["final"]
             sugerida_na_epoca = normalizar(override["sugerida_quando_ajustado"])
             if sugerida_na_epoca != normalizar(sugerida):
-                obs = "ajuste manual preservado (aviso: sugestao do FIFO mudou - revise)"
+                obs = "ajuste manual preservado (aviso: a sugestao mudou - revise)"
                 avisos.append(
-                    f"Aviso: a sugestao do FIFO mudou para o recebimento "
+                    f"Aviso: a sugestao mudou para o recebimento "
                     f"'{a['nota_recebimento']}', produto '{a['produto']}' "
                     f"(era '{override['sugerida_quando_ajustado'] or '-'}', agora seria "
                     f"'{sugerida or '-'}'), mas o ajuste manual '{final}' continua sendo "
@@ -205,7 +237,7 @@ def escrever_alocacoes(sh, alocacoes, overrides, avisos):
     ws.format("A1:J1", {"textFormat": {"bold": True}, "backgroundColor": COR_CINZA})
     ws.freeze(rows=1)
     # A cor de fundo (vermelho para SEM CORRESPONDENCIA, amarelo para
-    # fifo) NAO e' mais feita por aqui - e' uma regra de formatacao
+    # uma origem antiga) NAO e' mais feita por aqui - e' uma regra de formatacao
     # condicional configurada direto na planilha (ver README), olhando
     # o texto da coluna Origem. Isso evita dezenas de chamadas de
     # escrita por execucao (que estouravam a cota de "Write requests
@@ -235,7 +267,7 @@ def escrever_saldo(sh, saldo_map, alocacoes):
         saldo_aberto = round(s.enviado - retornado, 6)
         dias_aberto = (hoje - s.data).days if isinstance(s.data, datetime) else None
         pct = round(100 * retornado / s.enviado, 1) if s.enviado else 0
-        prioridade, _cor_texto = calcular_prioridade(dias_aberto, saldo_aberto)
+        prioridade = calcular_prioridade(dias_aberto, saldo_aberto)
         calculadas.append(dict(s=s, retornado=retornado, saldo_aberto=saldo_aberto,
                                 dias_aberto=dias_aberto, prioridade=prioridade, pct=pct))
 
@@ -356,7 +388,7 @@ def escrever_retorno_por_nf(sh, saidas, alocacoes):
 
     retorno_por_nf = {}
     for a in alocacoes:
-        nf = a.get("nf_saida")
+        nf = a.get("nf_saida_final", a.get("nf_saida"))  # respeita ajuste manual
         if not nf:
             continue  # SEM CORRESPONDENCIA - nao pertence a nenhuma NF de saida
         chave_nf = normalizar(nf)
@@ -372,7 +404,9 @@ def escrever_retorno_por_nf(sh, saidas, alocacoes):
         linhas.append(linha)
 
     ws = obter_ou_criar_aba(sh, "Retorno por NF e Fornecedor")
-    ws.clear()
+    # obter_ou_criar_aba ja chama ws.clear() internamente quando a aba
+    # existe - um segundo ws.clear() aqui era uma chamada de escrita
+    # redundante (gastava cota do Google Sheets a toa).
     ws.update(values=linhas, range_name="A1")
     ultima_col = gspread.utils.rowcol_to_a1(1, len(cabecalho)).rstrip("1")
     ws.format(f"A1:{ultima_col}1", {"textFormat": {"bold": True}, "backgroundColor": COR_CINZA})
