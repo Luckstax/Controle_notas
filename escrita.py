@@ -455,3 +455,71 @@ def escrever_resumo_fornecedor(sh, saidas, entradas):
     ws.freeze(rows=1)
     print("Aba 'Resumo por Fornecedor' atualizada.")
     return ws
+
+
+# Meta de entrega DIARIA do produto abaixo, por fornecedor (chave =
+# nome do fornecedor normalizado, minusculo). Ajuste aqui se a meta mudar.
+# Fornecedor que nao estiver neste dicionario (ex: Sam Correia) fica com
+# as colunas de diferenca EM BRANCO.
+PRODUTO_META = "02485-i"
+METAS_DIARIAS = {
+    "high color": 400,
+}
+
+
+# ----------------------------------------------------------------------
+# Aba "Recebido por Dia": quanto foi RECEBIDO (Entrada) de cada tipo de
+# peca, de cada fornecedor, em cada dia. Uma linha por (data, fornecedor)
+# e uma coluna por produto, mais um total. Soma direto das entradas pela
+# data de recebimento - nao depende da conciliacao com as NFs de saida
+# (nao olha nota mencionada nem ajuste manual), entao e' a visao "o que
+# chegou fisicamente". Mais recente no topo.
+# ----------------------------------------------------------------------
+@com_retry
+def escrever_recebido_por_dia(sh, entradas):
+    produtos = sorted({p for e in entradas for p in e.produtos})
+    if not produtos:
+        return
+
+    totais = {}  # (data|None, fornecedor) -> {produto: qtd}
+    for e in entradas:
+        dia = e.data.date() if isinstance(e.data, datetime) else None
+        por_produto = totais.setdefault((dia, e.fornecedor), {})
+        for produto, qtd in e.produtos.items():
+            por_produto[produto] = por_produto.get(produto, 0) + qtd
+
+    def chave_ordenacao(chave):
+        dia, fornecedor = chave
+        # datas mais recentes primeiro; "sem data" por ultimo
+        return (dia is None, -(dia.toordinal()) if dia else 0, fornecedor)
+
+    nome_prod = PRODUTO_META.upper()
+    cabecalho = (["Data Recebimento", "Fornecedor"] + produtos + ["Total"]
+                 + [f"Dif. {nome_prod} vs meta", f"Dif. {nome_prod} vs meta (%)"])
+    linhas = [cabecalho]
+    for chave in sorted(totais, key=chave_ordenacao):
+        dia, fornecedor = chave
+        por_produto = totais[chave]
+        valores = [round(por_produto.get(p, 0), 6) for p in produtos]
+        # diferenca vs meta diaria = recebido - meta (so' do produto com
+        # meta). So' preenche quando: ha data, o fornecedor tem meta E
+        # houve entrada do produto naquele dia. Negativo = faltou entregar.
+        meta = METAS_DIARIAS.get(normalizar(fornecedor))
+        recebido_meta = por_produto.get(PRODUTO_META, 0)
+        if dia is not None and meta and recebido_meta > 0:
+            dif = round(recebido_meta - meta, 6)
+            dif_pct = round(100 * dif / meta, 1)
+        else:
+            dif, dif_pct = "", ""
+        linhas.append([
+            dia.strftime("%d/%m/%Y") if dia else "Sem data",
+            fornecedor, *valores, round(sum(valores), 6), dif, dif_pct,
+        ])
+
+    ws = obter_ou_criar_aba(sh, "Recebido por Dia")
+    ws.update(values=linhas, range_name="A1")
+    ultima_col = gspread.utils.rowcol_to_a1(1, len(cabecalho)).rstrip("1")
+    ws.format(f"A1:{ultima_col}1", {"textFormat": {"bold": True}, "backgroundColor": COR_CINZA})
+    ws.freeze(rows=1)
+    print("Aba 'Recebido por Dia' atualizada.")
+    return ws

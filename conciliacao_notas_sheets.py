@@ -14,7 +14,7 @@ from escrita import (
     ler_overrides_anteriores, ler_avisos_anteriores, ler_alocacoes_anteriores,
     contar_alocacoes_novas, contar_avisos_novos,
     escrever_alocacoes, escrever_saldo, escrever_avisos, preencher_controle,
-    escrever_retorno_por_nf, escrever_resumo_fornecedor,
+    escrever_retorno_por_nf, escrever_resumo_fornecedor, escrever_recebido_por_dia,
 )
 from historico import registrar_execucao
 
@@ -96,6 +96,7 @@ def main():
     preencher_controle(sh, saidas, entradas)
     escrever_retorno_por_nf(sh, saidas, alocacoes)
     escrever_resumo_fornecedor(sh, saidas, entradas)
+    escrever_recebido_por_dia(sh, entradas)
     registrar_execucao(saidas, entradas, avisos, alocacoes, dry_run=False)
 
     alocacoes_novas = contar_alocacoes_novas(alocacoes, alocacoes_anteriores)
@@ -103,7 +104,7 @@ def main():
     print(f"OK: {len(alocacoes)} alocacoes geradas ({alocacoes_novas} novas), "
           f"{len(avisos)} avisos ({avisos_novos} novos).")
     print("Abas atualizadas: Alocacoes, Saldo por NF, Avisos, Controle, "
-          "Retorno por NF e Fornecedor e Resumo por Fornecedor.")
+          "Retorno por NF e Fornecedor, Resumo por Fornecedor e Recebido por Dia.")
 
 
 if __name__ == "__main__":

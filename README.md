@@ -8,12 +8,16 @@ Google Sheets alimentada por dois formulários do Google Forms.
 ## O que o programa faz
 
 - Lê as abas **Entrada** e **Saída** (alimentadas pelos Forms).
-- Para cada devolução, tenta casar com a(s) nota(s) de saída que a
-  pessoa mencionou no formulário (até 5 por resposta). Se sobrar
-  quantidade, distribui pelas notas de saída mais antigas em aberto do
-  mesmo fornecedor/produto (FIFO). Se ainda sobrar, marca como **SEM
-  CORRESPONDENCIA** para revisão manual — isso não é necessariamente um
-  erro, pode ser retorno de uma nota antiga que ainda não foi lançada.
+- Para cada devolução, casa com a(s) nota(s) de saída que a pessoa
+  mencionou no formulário (até 5 por resposta, na ordem preenchida). O
+  programa **não tenta adivinhar** de qual NF uma devolução veio: só
+  aloca onde a pessoa disse que veio (não há mais distribuição
+  automática por FIFO/nota mais antiga). Se a quantidade mencionada não
+  for suficiente, ou nenhuma nota tiver sido mencionada, o que sobrar
+  vira **SEM CORRESPONDENCIA** para revisão manual — isso não é
+  necessariamente um erro, pode ser retorno de uma nota antiga que
+  ainda não foi lançada, ou a pessoa pode ter esquecido de preencher a
+  nota mencionada no formulário.
 - Gera/atualiza automaticamente estas abas:
   - **Alocacoes** — cada devolução e de qual NF de saída ela veio.
     Tem uma coluna editável ("NF Saida (final)") para ajuste manual,
@@ -23,6 +27,20 @@ Google Sheets alimentada por dois formulários do Google Forms.
   - **Avisos** — lista de divergências para revisar (nota mencionada
     não encontrada, fornecedor divergente, quantidade negativa, etc.).
   - **Controle** — totais de saída x entrada por produto.
+  - **Resumo por Fornecedor** — total enviado x total retornado por
+    (fornecedor, produto), somado direto, ignorando a NF específica.
+    Diferença negativa = já voltou mais do que foi enviado segundo o
+    que está lançado — sinal de nota de saída faltando ou lançada
+    errada.
+  - **Recebido por Dia** — quanto foi recebido (Entrada) de cada tipo de
+    peça, de cada fornecedor, em cada dia (uma linha por data + fornecedor,
+    uma coluna por produto e um total). Soma direto das entradas pela data
+    de recebimento, sem depender da conciliação com as notas de saída.
+    Para a peça 02485-I há ainda duas colunas comparando o recebido do dia
+    com a meta diária do High Color (400): recebido − meta, em peças e em %
+    (negativo = faltou entregar). Só preenche se houve entrada de 02485-I
+    naquele dia; Sam Correia fica em branco. As metas ficam em
+    `METAS_DIARIAS` no `escrita.py`.
   - **Retorno por NF e Fornecedor** — quanto voltou de cada item, por
     nota de saída e fornecedor.
 
@@ -52,9 +70,6 @@ pip install -r requirements.txt
    (pode ser o nome do arquivo, se ele estiver na mesma pasta, ou um
    caminho completo)
 
-<<<<<<< HEAD
-   
-=======
 ⚠️ **Nunca suba o `credenciais.env` nem o `.json` da service account
 para o GitHub** — o `.gitignore` deste repositório já ignora os dois,
 mas vale conferir com `git status` antes de cada commit.
@@ -71,9 +86,13 @@ funcionando sozinhas daí em diante):
 **Aba "Alocacoes"** — selecione `A2:J1000` → Formatar → Formatação
 condicional → "A fórmula personalizada é":
 - `=$I2="SEM CORRESPONDENCIA"` → fundo vermelho claro
-- `=ESQUERDA($I2;4)="fifo"` → fundo amarelo claro
 
-**Aba "Saldo por NF"** — selecione `I2:J1000` → Formatar → Formatação
+(A versão antiga do script tinha FIFO automático e uma regra amarela
+pra isso; o FIFO foi removido — agora a coluna Origem só tem "nota
+mencionada N" ou "SEM CORRESPONDENCIA" — então essa regra amarela não
+se aplica mais e pode ser apagada se ainda existir na sua planilha.)
+
+**Aba "Saldo por NF"** — selecione `J2:J1000` → Formatar → Formatação
 condicional → "A fórmula personalizada é":
 - `=$J2="Baixa"` → texto verde, negrito
 - `=$J2="Media"` → texto laranja, negrito
@@ -81,10 +100,11 @@ condicional → "A fórmula personalizada é":
 
 ("Concluido" e "Sem data" ficam sem regra = sem cor, de propósito.)
 
-Confira antes se a coluna referenciada na fórmula (I ou J) bate com o
-cabeçalho real da sua planilha, caso a ordem das colunas tenha mudado.
+Confira antes se a coluna referenciada na fórmula bate com o cabeçalho
+real da sua planilha, caso a ordem das colunas tenha mudado (a coluna
+"Tipo" foi adicionada depois, então Prioridade pode não estar mais na
+mesma letra que era antes).
 
->>>>>>> c4907cd (atualização 06/08)
 ## Como rodar
 
 ```
@@ -122,7 +142,8 @@ comparando com o que já estava nas abas antes de sobrescrever.
 | `planilha_io.py` | Conexão com o Google Sheets, leitura de abas, localização de colunas pelo cabeçalho, retry automático |
 | `leitura.py` | Conversão das linhas de Entrada/Saída em objetos Python, apelidos de fornecedor |
 | `conciliacao.py` | A lógica de alocação FIFO e as validações pré-escrita |
-| `escrita.py` | Geração das abas de resultado (Alocações, Saldo por NF, Avisos, Controle, Retorno por NF e Fornecedor) |
+| `escrita.py` | Geração das abas de resultado (Alocações, Saldo por NF, Avisos, Controle, Retorno por NF e Fornecedor, Resumo por Fornecedor) |
+| `historico.py` | Log local (`historico.json`) com data/hora e contagens de cada execução |
 | `modelos.py` | Estruturas de dados (`NotaSaida`, `NotaEntrada`, `SaldoNF`) |
 
 ## Colunas esperadas
